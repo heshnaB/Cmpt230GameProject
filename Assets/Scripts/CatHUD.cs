@@ -6,7 +6,7 @@ public class CatHUD : MonoBehaviour
 {
     public CatGameManager gameManager;
 
-    // Can still be assigned in Inspector — if left empty, auto-created below
+    // Legacy Inspector refs kept for compatibility — display now uses OnGUI
     public Text moralityText;
     public Text goalText;
     public Text messageText;
@@ -15,196 +15,32 @@ public class CatHUD : MonoBehaviour
 
     public float messageDuration = 4f;
 
+    private string currentGoal    = "";
+    private string currentMessage = "";
     private Coroutine messageRoutine;
+
+    private Texture2D _whiteTex;
+    Texture2D White
+    {
+        get
+        {
+            if (_whiteTex == null)
+            {
+                _whiteTex = new Texture2D(1, 1);
+                _whiteTex.SetPixel(0, 0, Color.white);
+                _whiteTex.Apply();
+            }
+            return _whiteTex;
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     void Awake()
     {
         if (gameManager == null)
             gameManager = FindFirstObjectByType<CatGameManager>();
-
-        EnsureHUD();
     }
-
-    // ── Auto-build the HUD if Inspector refs are not manually assigned ────────
-
-    void EnsureHUD()
-    {
-        bool allAssigned = moralityText != null && goalText != null &&
-                           messageText != null && yellowBar != null && greenBar != null;
-        if (allAssigned) return;
-
-        // Canvas — Screen Space Overlay so it always sits on top of the game view
-        var canvasGO = new GameObject("HUD_Canvas");
-        var canvas   = canvasGO.AddComponent<Canvas>();
-        canvas.renderMode   = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 100;
-
-        var scaler = canvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode         = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight  = 0.5f;
-
-        canvasGO.AddComponent<GraphicRaycaster>();
-
-        // Unity 2023 uses LegacyRuntime.ttf; older builds used Arial.ttf
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
-                 ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-
-        // ── TOP-LEFT: stat bars inside a dark panel ───────────────────────────
-        var panel    = MakeRect("StatsPanel", canvasGO.transform);
-        var panelImg = panel.gameObject.AddComponent<Image>();
-        panelImg.color = new Color(0f, 0f, 0f, 0.50f);
-        Anchor(panel, 0f, 1f);
-        panel.anchoredPosition = new Vector2(12f, -12f);
-        panel.sizeDelta        = new Vector2(334f, 90f);
-
-        MakeLabel(panel, "EnergyLabel", "Energy", font, 15, new Vector2(8f,  -14f), new Vector2(84f, 24f));
-        if (yellowBar == null)
-            yellowBar = MakeSlider(panel, "YellowBar", new Color(1f, 0.82f, 0f),
-                                   new Vector2(100f, -14f), new Vector2(226f, 24f));
-
-        MakeLabel(panel, "HealthLabel", "Health",  font, 15, new Vector2(8f, -52f), new Vector2(84f, 24f));
-        if (greenBar == null)
-            greenBar  = MakeSlider(panel, "GreenBar", new Color(0.18f, 0.82f, 0.18f),
-                                   new Vector2(100f, -52f), new Vector2(226f, 24f));
-
-        // ── TOP-RIGHT: morality ───────────────────────────────────────────────
-        if (moralityText == null)
-            moralityText = MakeText(canvasGO.transform, "MoralityText", "Morality: 0",
-                font, 18, TextAnchor.UpperRight,
-                anchor: new Vector2(1f, 1f), pivot: new Vector2(1f, 1f),
-                pos: new Vector2(-14f, -14f), size: new Vector2(240f, 36f));
-
-        // ── TOP-CENTER: current goal ──────────────────────────────────────────
-        if (goalText == null)
-            goalText = MakeText(canvasGO.transform, "GoalText", "",
-                font, 18, TextAnchor.UpperCenter,
-                anchor: new Vector2(0.5f, 1f), pivot: new Vector2(0.5f, 1f),
-                pos: new Vector2(0f, -14f), size: new Vector2(700f, 36f));
-
-        // ── BOTTOM-CENTER: temporary message ─────────────────────────────────
-        if (messageText == null)
-        {
-            var msgPanel    = MakeRect("MessagePanel", canvasGO.transform);
-            var msgPanelImg = msgPanel.gameObject.AddComponent<Image>();
-            msgPanelImg.color = new Color(0f, 0f, 0f, 0.45f);
-            Anchor(msgPanel, 0.5f, 0f);
-            msgPanel.pivot            = new Vector2(0.5f, 0f);
-            msgPanel.anchoredPosition = new Vector2(0f, 40f);
-            msgPanel.sizeDelta        = new Vector2(900f, 58f);
-
-            messageText = MakeText(msgPanel, "MessageText", "",
-                font, 20, TextAnchor.MiddleCenter,
-                anchor: Vector2.zero, pivot: Vector2.zero,
-                pos: Vector2.zero, size: Vector2.zero,
-                stretch: true);
-        }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    static RectTransform MakeRect(string name, Transform parent)
-    {
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-        return go.AddComponent<RectTransform>();
-    }
-
-    static void Anchor(RectTransform r, float x, float y)
-    {
-        r.anchorMin = r.anchorMax = r.pivot = new Vector2(x, y);
-    }
-
-    static void Stretch(RectTransform r)
-    {
-        r.anchorMin = Vector2.zero;
-        r.anchorMax = Vector2.one;
-        r.sizeDelta = r.anchoredPosition = Vector2.zero;
-    }
-
-    static Text MakeText(Transform parent, string name, string content,
-        Font font, int size, TextAnchor alignment,
-        Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size2,
-        bool stretch = false)
-    {
-        var r = MakeRect(name, parent);
-
-        var shadow = r.gameObject.AddComponent<Shadow>();
-        shadow.effectColor    = new Color(0f, 0f, 0f, 0.85f);
-        shadow.effectDistance = new Vector2(1f, -1f);
-
-        var text = r.gameObject.AddComponent<Text>();
-        text.text      = content;
-        text.font      = font;
-        text.fontSize  = size;
-        text.color     = Color.white;
-        text.alignment = alignment;
-
-        if (stretch) { Stretch(r); return text; }
-
-        r.anchorMin        = r.anchorMax = anchor;
-        r.pivot            = pivot;
-        r.anchoredPosition = pos;
-        r.sizeDelta        = size2;
-        return text;
-    }
-
-    static void MakeLabel(RectTransform parent, string name, string content,
-        Font font, int size, Vector2 pos, Vector2 sz)
-    {
-        var r    = MakeRect(name, parent.transform);
-        var text = r.gameObject.AddComponent<Text>();
-        text.text      = content;
-        text.font      = font;
-        text.fontSize  = size;
-        text.color     = Color.white;
-        text.alignment = TextAnchor.MiddleLeft;
-        Anchor(r, 0f, 1f);
-        r.anchoredPosition = pos;
-        r.sizeDelta        = sz;
-    }
-
-    static Slider MakeSlider(RectTransform parent, string name,
-        Color fillColor, Vector2 pos, Vector2 sz)
-    {
-        var r      = MakeRect(name, parent.transform);
-        var slider = r.gameObject.AddComponent<Slider>();
-        slider.minValue  = 0f;
-        slider.maxValue  = 100f;
-        slider.value     = 100f;
-        slider.direction = Slider.Direction.LeftToRight;
-        Anchor(r, 0f, 1f);
-        r.anchoredPosition = pos;
-        r.sizeDelta        = sz;
-
-        // Dark background track
-        var bg    = MakeRect("Background", r.transform);
-        var bgImg = bg.gameObject.AddComponent<Image>();
-        bgImg.color = new Color(0.12f, 0.12f, 0.12f, 0.85f);
-        Stretch(bg);
-        slider.targetGraphic = bgImg;
-
-        // Fill area (slight inset so fill doesn't overlap the track border)
-        var fillArea = MakeRect("Fill Area", r.transform);
-        fillArea.anchorMin        = new Vector2(0f,   0.1f);
-        fillArea.anchorMax        = new Vector2(1f,   0.9f);
-        fillArea.sizeDelta        = new Vector2(-4f,  0f);
-        fillArea.anchoredPosition = Vector2.zero;
-
-        // Colored fill
-        var fill    = MakeRect("Fill", fillArea.transform);
-        var fillImg = fill.gameObject.AddComponent<Image>();
-        fillImg.color = fillColor;
-        fill.anchorMin        = Vector2.zero;
-        fill.anchorMax        = Vector2.one;
-        fill.sizeDelta        = Vector2.zero;
-        fill.anchoredPosition = Vector2.zero;
-        slider.fillRect = fill;
-
-        return slider;
-    }
-
-    // ── Game logic (identical to original) ───────────────────────────────────
 
     void OnEnable()
     {
@@ -214,8 +50,6 @@ public class CatHUD : MonoBehaviour
         gameManager.GoalChanged   += SetGoal;
     }
 
-    void Start() => RefreshState();
-
     void OnDisable()
     {
         if (gameManager == null) return;
@@ -224,43 +58,123 @@ public class CatHUD : MonoBehaviour
         gameManager.GoalChanged   -= SetGoal;
     }
 
-    void RefreshState()
-    {
-        if (gameManager == null) return;
+    void Start() => RefreshState();
 
-        if (moralityText != null)
-            moralityText.text = "Morality: " + gameManager.morality;
+    void RefreshState() { /* values read live from gameManager in OnGUI */ }
 
-        if (yellowBar != null)
-        {
-            yellowBar.maxValue = gameManager.maxStat;
-            yellowBar.value    = gameManager.yellowStat;
-        }
-
-        if (greenBar != null)
-        {
-            greenBar.maxValue = gameManager.maxStat;
-            greenBar.value    = gameManager.greenStat;
-        }
-    }
-
-    void SetGoal(string goal)
-    {
-        if (goalText != null)
-            goalText.text = "Goal: " + goal;
-    }
+    void SetGoal(string goal) => currentGoal = goal;
 
     void ShowMessage(string message)
     {
-        if (messageText == null) return;
-        messageText.text = message;
+        currentMessage = message;
         if (messageRoutine != null) StopCoroutine(messageRoutine);
-        messageRoutine = StartCoroutine(ClearMessageAfterDelay());
+        messageRoutine = StartCoroutine(ClearAfterDelay());
     }
 
-    IEnumerator ClearMessageAfterDelay()
+    IEnumerator ClearAfterDelay()
     {
         yield return new WaitForSeconds(messageDuration);
-        if (messageText != null) messageText.text = "";
+        currentMessage = "";
+    }
+
+    // ── OnGUI — draws directly onto the screen, no Canvas needed ─────────────
+
+    void OnGUI()
+    {
+        if (gameManager == null) return;
+
+        float sw  = Screen.width;
+        float sh  = Screen.height;
+        float s   = sh / 1080f;   // scale factor relative to 1080p
+
+        float pad  = 14 * s;
+        float barW = 280 * s;
+        float barH = 26 * s;
+        int   fs   = Mathf.Max(12, Mathf.RoundToInt(15 * s));
+
+        // ── Energy bar (yellow) — top left ────────────────────────────────
+        float ratio1 = gameManager.maxStat > 0 ? gameManager.yellowStat / gameManager.maxStat : 1f;
+        DrawBar(pad, pad, barW, barH, ratio1, new Color(1f, 0.82f, 0f), "Energy", fs);
+
+        // ── Health bar (green) — below energy ─────────────────────────────
+        float ratio2 = gameManager.maxStat > 0 ? gameManager.greenStat / gameManager.maxStat : 1f;
+        DrawBar(pad, pad + barH + 8 * s, barW, barH, ratio2, new Color(0.2f, 0.85f, 0.2f), "Health", fs);
+
+        // ── Morality — top right ──────────────────────────────────────────
+        string morStr   = "Morality: " + gameManager.morality;
+        float  morW     = 230 * s;
+        var    morStyle = MakeStyle(Mathf.Max(12, Mathf.RoundToInt(17 * s)), TextAnchor.UpperRight);
+        ShadowLabel(new Rect(sw - morW - pad, pad, morW, 34 * s), morStr, morStyle);
+
+        // ── Current goal — top center ─────────────────────────────────────
+        if (!string.IsNullOrEmpty(currentGoal))
+        {
+            float goalW     = 700 * s;
+            var   goalStyle = MakeStyle(Mathf.Max(12, Mathf.RoundToInt(17 * s)), TextAnchor.UpperCenter);
+            ShadowLabel(new Rect((sw - goalW) * 0.5f, pad, goalW, 34 * s),
+                        "Goal: " + currentGoal, goalStyle);
+        }
+
+        // ── Message — bottom center ───────────────────────────────────────
+        if (!string.IsNullOrEmpty(currentMessage))
+        {
+            float msgW  = Mathf.Min(900 * s, sw - pad * 2);
+            float msgH  = 64 * s;
+            float msgX  = (sw - msgW) * 0.5f;
+            float msgY  = sh - msgH - 50 * s;
+
+            DrawRect(new Rect(msgX - 10, msgY - 6, msgW + 20, msgH + 12),
+                     new Color(0f, 0f, 0f, 0.5f));
+
+            var msgStyle = MakeStyle(Mathf.Max(12, Mathf.RoundToInt(19 * s)), TextAnchor.MiddleCenter);
+            msgStyle.wordWrap = true;
+            ShadowLabel(new Rect(msgX, msgY, msgW, msgH), currentMessage, msgStyle);
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    void DrawBar(float x, float y, float w, float h,
+                 float fill, Color fillColor, string label, int fontSize)
+    {
+        float labelW = 74 * (h / 26f);  // proportional label column
+        float totalW = w + 8 + labelW;
+
+        // panel background
+        DrawRect(new Rect(x - 5, y - 5, totalW + 10, h + 10), new Color(0f, 0f, 0f, 0.5f));
+        // dark track
+        DrawRect(new Rect(x, y, w, h), new Color(0.12f, 0.12f, 0.12f, 0.9f));
+        // colored fill
+        DrawRect(new Rect(x, y, w * Mathf.Clamp01(fill), h), fillColor);
+
+        // label to the right
+        var style = MakeStyle(fontSize, TextAnchor.MiddleLeft);
+        ShadowLabel(new Rect(x + w + 8, y, labelW, h), label, style);
+    }
+
+    void DrawRect(Rect r, Color c)
+    {
+        var prev = GUI.color;
+        GUI.color = c;
+        GUI.DrawTexture(r, White);
+        GUI.color = prev;
+    }
+
+    static GUIStyle MakeStyle(int size, TextAnchor alignment)
+    {
+        return new GUIStyle(GUI.skin.label)
+        {
+            fontSize  = size,
+            alignment = alignment,
+            normal    = { textColor = Color.white }
+        };
+    }
+
+    static void ShadowLabel(Rect r, string text, GUIStyle style)
+    {
+        var shadow = new GUIStyle(style);
+        shadow.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
+        GUI.Label(new Rect(r.x + 1, r.y + 1, r.width, r.height), text, shadow);
+        GUI.Label(r, text, style);
     }
 }
